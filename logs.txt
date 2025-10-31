@@ -1,0 +1,14 @@
+Document - Buffet&Munger_Unscripted.pdf
+Pages - 554
+
+Text Split conditions - chunk_size=1000,
+                        chunk_overlap=250,
+                        length_function=len,
+                        separators=["\n\n", "\n"]
+Total document splits:  1529
+
+1. Using lazy load:
+    Total time taken:  10.31 seconds
+
+2. Using normal load:
+    Total time taken:  10.93 seconds
