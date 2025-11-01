@@ -21,6 +21,7 @@ WORKDIR /Knowledge Graph/
 COPY doc_loader.py .
 COPY graph.py .
 COPY requirements.txt .
+COPY main.py .
 COPY AttentionPaper.pdf .
 COPY Neo4j-Credentials.txt .
 RUN pip install -r requirements.txt && \
@@ -29,7 +30,8 @@ RUN pip install -r requirements.txt && \
 RUN echo "dbms.security.allow_csv_import_from_file_urls=true" >> /etc/neo4j/neo4j.conf && \
     echo "dbms.security.procedures.allowlist=apoc.*,gds.*" >> /etc/neo4j/neo4j.conf && \
     echo "dbms.security.procedures.unrestricted=apoc.*,gds.*" >> /etc/neo4j/neo4j.conf && \
-    echo "server.default_listen_address=0.0.0.0" >> /etc/neo4j/neo4j.conf
+    echo "server.default_listen_address=0.0.0.0" >> /etc/neo4j/neo4j.conf && \
+    echo "apoc.import.file.enabled=true" >> /etc/neo4j/apoc.conf
 
 # Run the data loader script
 RUN neo4j start & \
