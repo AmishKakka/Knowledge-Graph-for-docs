@@ -14,7 +14,7 @@ class DocumentLoader:
                                                             separators=["\n\n", "\n"])
 
     def get_doc_id(self):
-        return str(uuid.uuid4())
+        return uuid.uuid4()
 
     # def load_and_split(self, doc_path: str):
     #     print("Loading and splitting the document...")
@@ -39,7 +39,7 @@ class DocumentLoader:
               'text': c.page_content,
               'file_path': c.metadata['file_path'],
               'page': c.metadata['page'],
-              'chunkId': self.doc_id+'_'+str(c.metadata['page'])+'_'+str(idx)
+              'chunkId': idx
             })
         print(f"Created {len(chunks)} chunks with metadata...")
         return chunks_with_metadata

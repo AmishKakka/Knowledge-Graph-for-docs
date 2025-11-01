@@ -29,7 +29,7 @@ class Neo4j:
                                            {'list_of_chunks': list_of_chunks})
         print("Time taken: ", time()-st)
         print("Added nodes to the graph...")
-        print(result)
+        # print(result)
 
     def delete_all_nodes(self):
         self.driver.execute_query("""
@@ -38,6 +38,21 @@ class Neo4j:
                                   """)
         print("Nodes deleted.")
 
+    def precedence_relationship(self):
+        self.driver.execute_query("""
+                                  MATCH (c1:Chunk)
+                                  MATCH (c2:Chunk {chunkId: c1.chunkId + 1})
+                                  CREATE (c1)-[r:PRECEDES]->(c2)
+                                  """)
+        print("Added precedence relations between nodes...")
+      
+    def delete_all_relations(self):
+        self.driver.execute_query("""
+                                  MATCH ()-[r:PRECEDES]->()
+                                  DETACH DELETE r
+                                  """)
+        print("Deleted all relationships...")
+  
     def close(self):
         self.driver.close()
         print("Connection to Neo4j closed...")

@@ -18,3 +18,10 @@ neo4j = Neo4j("your_uri",
 
 # Adding nodes to the graph
 neo4j.add_nodes(chunks)
+
+# Add relation between nodes
+neo4j.precedence_relationship()
+
+# Cleanup
+# neo4j.delete_all_relations()
+# neo4j.delete_all_nodes()
