@@ -13,8 +13,8 @@ doc_splits = doc_loader.lazy_load_and_split("AttentionPaper.pdf")
 chunks = doc_loader.create_chunks(doc_splits)
 
 # Connecting to Neo4j
-neo4j = Neo4j("neo4j+s://6fa154bf.databases.neo4j.io", 
-              "neo4j", "Vs1de404s4YLJP0I4lbuj5lyLaVzdMEpbK5KDIsUyCc")
+neo4j = Neo4j("your_uri", 
+              "neo4j", "your_password")
 
 # Adding nodes to the graph
 neo4j.add_nodes(chunks)
