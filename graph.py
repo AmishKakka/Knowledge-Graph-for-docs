@@ -44,5 +44,5 @@ class Neo4j:
 
 
 if __name__ == "__main__":
-    graph = Neo4j("neo4j+s://6fa154bf.databases.neo4j.io", 
-                "neo4j", "Vs1de404s4YLJP0I4lbuj5lyLaVzdMEpbK5KDIsUyCc")
+    graph = Neo4j("your_uri", 
+                "neo4j", "your_password")
