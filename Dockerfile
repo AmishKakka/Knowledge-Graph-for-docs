@@ -17,6 +17,10 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* 
 
+ENV uri="your_neo4j_uri"
+ENV neo4j_pass="your_neo4j_password"
+ENV openai="your_OPENAI_api_key"
+
 WORKDIR /Knowledge Graph/
 COPY doc_loader.py .
 COPY graph.py .
@@ -30,8 +34,7 @@ RUN pip install -r requirements.txt && \
 RUN echo "dbms.security.allow_csv_import_from_file_urls=true" >> /etc/neo4j/neo4j.conf && \
     echo "dbms.security.procedures.allowlist=apoc.*,gds.*" >> /etc/neo4j/neo4j.conf && \
     echo "dbms.security.procedures.unrestricted=apoc.*,gds.*" >> /etc/neo4j/neo4j.conf && \
-    echo "server.default_listen_address=0.0.0.0" >> /etc/neo4j/neo4j.conf && \
-    echo "apoc.import.file.enabled=true" >> /etc/neo4j/apoc.conf
+    echo "server.default_listen_address=0.0.0.0" >> /etc/neo4j/neo4j.conf
 
 # Run the data loader script
 RUN neo4j start & \
