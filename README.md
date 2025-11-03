@@ -32,7 +32,20 @@ precedence between nodes based on chunkId, highlighting thematic or contextual c
 git clone https://github.com/AmishKakka/Knowledge-Graph-for-docs.git
 ```
 
-2. Use the dockerfile to create an image of this project and then run it from your terminal or from Docker desktop. First ensure your Docker Desktop is up and running.
+2. We are using [Neo4j AuraDB](https://login.neo4j.com/u/login/identifier?state=hKFo2SBidm1uRlNXaUdLZVdMUmlzRGdiUkJpTGp6c3FhRWJCZ6Fur3VuaXZlcnNhbC1sb2dpbqN0aWTZIHdfYlhSeHBHSVZVa3IyakhOenFSUEJhQW9hSzFjT2Q3o2NpZNkgRXZ2MmNjWFBjOHVPeGV3bzBJalkyMFlJckg3VmtKVzk) (**1 free instance when you create a new account**) for our graph. When creating your AuraDB instance you would have a credentials file to download which contains the URI, username, password you need to connect to your instance through code.
+
+3. Use the dockerfile to create an image of this project and then run it from your terminal or from Docker desktop. First ensure your Docker Desktop is up and running.
+
+But before creating an image, you need to change the values for - 
+
+```sh
+    # This is the uri link that you will find in your Neo4j Credentials document downloaded earlier
+    ENV uri="your_neo4j_uri"
+    # Your unique password to connect to your instance
+    ENV neo4j_pass="your_neo4j_password"
+    # Your OpenAI API key needed to access an embedding model
+    ENV openai="your_OPENAI_api_key"
+```
 
 ```sh
 docker build your_image_name .
@@ -40,16 +53,14 @@ docker build your_image_name .
 docker run -d -p 7474:7474 -p 7687:7687 --name instance_name your_image_name 
 ```
 
-3. Now, you can run an interactive terminal for this container or just use the Docker Desktop to add, modify and run code.
+4. Now, you can run an interactive terminal for this container or just use the Docker Desktop to add, modify and run code.
+This lets you **access the instance from your terminal**.
 
 ```sh
 docker exec -it instance_name /bin/bash  
 ```
-This lets you access you instance from your terminal.
 
-4. We are using [Neo4j AuraDB](https://login.neo4j.com/u/login/identifier?state=hKFo2SBidm1uRlNXaUdLZVdMUmlzRGdiUkJpTGp6c3FhRWJCZ6Fur3VuaXZlcnNhbC1sb2dpbqN0aWTZIHdfYlhSeHBHSVZVa3IyakhOenFSUEJhQW9hSzFjT2Q3o2NpZNkgRXZ2MmNjWFBjOHVPeGV3bzBJalkyMFlJckg3VmtKVzk) (**1 free instance when you create a new account**) for our graph. When creating your AuraDB instance you would have a credentials file to download which contains the URI, username, password you need to connect to your instance through code
-
-5. In graph.py, add your instance details - URI, username, password. 
+5.  Explore the code
 
 ```sh
 # Connecting with your Aura graph db
@@ -57,6 +68,9 @@ python3 graph.py
 
 # Get you document, split into chunks of text with metadata.
 python3 doc_loader.py
+
+# Runs the flow created to load, split documents and add the nodes to the graph, then querying it
+python3 main.py
 ```
 
 **Pointers**

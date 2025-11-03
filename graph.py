@@ -125,6 +125,30 @@ class Neo4j:
                                             ORDER BY n.chunkId
                                             """)
         return result
+    
+    def query(self, q: str, topK: int):
+        '''
+            **Arguments: **
+                q: Your query in string format.
+                topK : The number of top results to be retrieved that are similar to your query.
+            Query the graph.
+
+            **Returns the top 5 relevant chunks with their text value, similarity score, and chunkId**
+        '''
+        result = self.driver.execute_query("""
+                                          WITH genai.vector.encode($text_query,
+                                          "OpenAI", 
+                                          {token : $api_key, 
+                                          model : 'text-embedding-ada-002'}) AS vector
+                                          WITH vector AS queryVector
+                                          CALL db.index.vector.queryNodes('chunk_embeddings', $topK, queryVector)
+                                          YIELD node, score
+                                          RETURN node.text, score, node.chunkId
+                                          ORDER BY score DESC
+                                          """,
+                                         {'api_key' : os.getenv('openai'), 'text_query' : q, 'topK' : topK}
+                                         )
+        return result
 
 
 if __name__ == "__main__":
