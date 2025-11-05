@@ -128,12 +128,13 @@ class Neo4j:
     
     def query(self, q: str, topK: int):
         '''
-            **Arguments: **
+            Query the graph.
+            
+            **Arguments:**
                 q: Your query in string format.
                 topK : The number of top results to be retrieved that are similar to your query.
-            Query the graph.
 
-            **Returns the top 5 relevant chunks with their text value, similarity score, and chunkId**
+            **Returns the top K relevant chunks with their text value, similarity score, and chunkId**
         '''
         result = self.driver.execute_query("""
                                           WITH genai.vector.encode($text_query,
@@ -142,14 +143,15 @@ class Neo4j:
                                           model : 'text-embedding-ada-002'}) AS vector
                                           WITH vector AS queryVector
                                           CALL db.index.vector.queryNodes('chunk_embeddings', $topK, queryVector)
-                                          YIELD node, score
-                                          RETURN node.text, score, node.chunkId
+                                          YIELD node AS c, score
+                                          OPTIONAL MATCH (n1:Chunk)-[:PRECEDES]->(c)
+                                          OPTIONAL MATCH (c)-[:PRECEDES]->(n2:Chunk)
+                                          RETURN n1.text, n2.text, c.text, c.page, n1.page, n2.page, score
                                           ORDER BY score DESC
                                           """,
                                          {'api_key' : os.getenv('openai'), 'text_query' : q, 'topK' : topK}
                                          )
         return result
-
 
 if __name__ == "__main__":
     graph = Neo4j(os.getenv("uri"), 

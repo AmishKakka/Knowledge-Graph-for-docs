@@ -1,11 +1,9 @@
 FROM ubuntu:22.04
 
-# ARGs
 # https://docs.docker.com/engine/reference/builder/#understand-how-arg-and-from-interact
 ARG TARGETPLATFORM=linux/amd64,linux/arm64
 ARG DEBIAN_FRONTEND=noninteractive
 
-# neo4j 2025.08.0 installation (match GDS v2.21.0) and some cleanup
 RUN apt-get update && \
     apt-get install -y wget gnupg software-properties-common && \
     wget -O - https://debian.neo4j.com/neotechnology.gpg.key | apt-key add - && \
