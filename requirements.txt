@@ -4,4 +4,5 @@ langchain_community
 langchain_text_splitters
 requests 
 neo4j
+langchain_experimental
 langchain_openai
