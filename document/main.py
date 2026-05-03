@@ -1,10 +1,8 @@
 import os
-from doc_loader import DocumentLoader
+from document.doc_loader import DocumentLoader
 from graph import Neo4j
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pprint import pprint
-from langchain_experimental.graph_transformers import LLMGraphTransformer
-from langchain_core.prompts import ChatPromptTemplate
 from time import time
 from data_model import GraphOutput
 print("Imported required files and packages...")
@@ -19,8 +17,8 @@ chunks, list_texts = doc_loader.create_chunks(doc_splits)
 
 # Connecting to Neo4j
 neo4j = Neo4j(
-            "neo4j://0.0.0.0:7687", 
-            "neo4j", "@Mk130437"
+            "neo4j://0.0.0.0:7687",    # Connecting to the Neo4j instance running inside your docker container
+            "neo4j", os.getenv('NEO4J_Password')
             )
 
 # Adding nodes to the graph

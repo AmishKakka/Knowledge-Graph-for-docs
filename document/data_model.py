@@ -12,5 +12,8 @@ class Relationship(BaseModel):
     type: str
 
 class GraphOutput(BaseModel):
+    '''
+        Class maintaining structure for LLM querying a document
+    '''
     nodes: List[Node]
     relationships: List[Relationship]
