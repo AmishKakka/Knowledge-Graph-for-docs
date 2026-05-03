@@ -5,9 +5,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from pprint import pprint
 from langchain_experimental.graph_transformers import LLMGraphTransformer
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.documents import Document
-from typing import Sequence
 from time import time
+from data_model import GraphOutput
 print("Imported required files and packages...")
 
 
@@ -21,7 +20,7 @@ chunks, list_texts = doc_loader.create_chunks(doc_splits)
 # Connecting to Neo4j
 neo4j = Neo4j(
             "neo4j://0.0.0.0:7687", 
-            "neo4j", "your_password"
+            "neo4j", "@Mk130437"
             )
 
 # Adding nodes to the graph
@@ -75,20 +74,36 @@ llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash",
 # ---------------------------------------------------------- #
 # Invoking the LLM to generate graph documents
 
-st = time()
-graphTransformer = LLMGraphTransformer(llm=llm)
-# Sending just a single document chunk
-graph_documents = graphTransformer.convert_to_graph_documents(doc_splits)
-print("Time taken to convert to graph: ", time()-st)
+# Extract text from Document objects
+doc_texts = "\n\n---\n\n".join([f"Page {doc.metadata['page']}, Chunk {doc.metadata.get('chunkId', 'N/A')}:\n{doc.page_content}" for doc in doc_splits[:15]])
 
-for docs in graph_documents:
-    pprint(docs.nodes)
-    print("-----")
-    pprint(docs.relationships)
-    print("-----")
-    pprint(docs.source)
-    
+prompt = [
+    ("system", """
+                You are a Research Knowledge Graph specialist. Your goal is to extract a high-fidelity graph from academic text.
 
-# Cleanup
+                1. **Entity Identification**:
+                - Author/Person: Use full names if available.
+                - Concept/Idea: Extract core methodologies, theories, or scientific terms.
+                - Document: The specific research paper or section title.
+
+                2. **Relationship Predicates (Strictly use these)**:
+                - AUTHOR_OF: Person to ResearchPaper.
+                - AFFILIATED_WITH: Person to Institution.
+                - CONTRIBUTES_TO: ResearchPaper to Concept.
+                - RELATED_TO: Concept to Concept.
+                - CITES: ResearchPaper to ResearchPaper.
+
+                3. **Normalization**: Ensure entity IDs are canonical. Avoid acronyms unless they are the primary identifier (e.g., use "Recurrent Neural Network" instead of "RNN" for the node ID).
+
+                4. **Provenance**: Link every node and relationship to the provided page and chunkId.
+                """),
+    ("human", doc_texts)
+]
+
+# Structuring the LLM with specific output schema
+structured_llm = llm.with_structured_output(GraphOutput)
+structured_response = structured_llm.invoke(prompt)
+pprint(structured_response)
+
 neo4j.delete_all_relations()
 neo4j.delete_all_nodes()
