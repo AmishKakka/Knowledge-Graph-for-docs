@@ -1,3 +1,4 @@
 env/
-Neo4j-Credentials.txt
-.DS_Store
+.DS_Store/*
+.env
+.__pycache__/*

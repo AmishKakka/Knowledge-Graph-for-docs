@@ -1,6 +1,7 @@
 from neo4j import GraphDatabase
 from time import time
 import os
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 class Neo4j:
     def __init__(self, uri, user, password):
@@ -15,6 +16,8 @@ class Neo4j:
                                            auth=(user, password))
         self.driver.verify_connectivity()
         print("Connected to Neo4j successfully...")
+        # Initialize Google Generative AI embeddings
+        self.embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-2", output_dimensionality=1536)
         self.driver.execute_query("""
                                   CREATE CONSTRAINT unique_chunk IF NOT EXISTS 
                                   FOR (c:Chunk) REQUIRE c.chunkId IS UNIQUE
@@ -34,12 +37,12 @@ class Neo4j:
         
     def add_nodes(self, list_of_chunks: list, list_of_texts: list):
         '''
-            Create nodes with given chunk data, also add a embedding vector for each prices of text chunk from the document.
+            Create nodes with given chunk data, also add an embedding vector for each text chunk from the document.
             
-            For adding the embedding vector, it is done batchwise for speed.
+            Embeddings are generated using Google Generative AI and added batchwise for speed.
                 Change the value of BATCH_SIZE accordingly.
         '''
-        BATCH_SIZE = 50
+        BATCH_SIZE = 100
         st = time()
         self.driver.execute_query("""
                                   UNWIND $list_of_chunks as chunkParam
@@ -51,24 +54,35 @@ class Neo4j:
                                   })
                                   """,
                                  {'list_of_chunks': list_of_chunks})
-        for batch in range(0, len(list_of_chunks), BATCH_SIZE):  
-          i = min(len(list_of_chunks), batch+BATCH_SIZE)
-          print(batch, i)
-          result = self.driver.execute_query("""
-                                      CALL genai.vector.encodeBatch($list_of_texts, 
-                                      "OpenAI", 
-                                      {token : $api_key, 
-                                      model : 'text-embedding-ada-002'}) 
-                                      YIELD index, vector
-                                      WITH index, [v in vector | round(v, 4)] AS roundedVector
-                                      MATCH (c:Chunk {chunkId: $batch_start+index})
-                                      SET c.embeddedChunk = roundedVector
+        
+        # Generate embeddings in batches using LangChain
+        for batch in range(0, len(list_of_texts), BATCH_SIZE):  
+            i = min(len(list_of_texts), batch+BATCH_SIZE)
+            print(f"Processing batch {batch} to {i}")
+            
+            # Generate embeddings for this batch
+            batch_texts = list_of_texts[batch:i]
+            embeddings = self.embeddings.embed_documents(batch_texts)
+            
+            # Prepare batch data for bulk update
+            batch_data = []
+            for idx, embedding in enumerate(embeddings):
+                chunk_id = batch + idx
+                rounded_embedding = [round(v, 4) for v in embedding]
+                batch_data.append({
+                    'chunkId': chunk_id,
+                    'embedding': rounded_embedding
+                })
+            
+            # Bulk update all nodes in this batch with one transaction
+            self.driver.execute_query("""
+                                      UNWIND $batch_data as item
+                                      MATCH (c:Chunk {chunkId: item.chunkId})
+                                      SET c.embeddedChunk = item.embedding
                                       RETURN c.chunkId
                                       """,
-                                      {'list_of_texts' : list_of_texts[batch:i],
-                                       'batch_start' : batch,
-                                        'api_key' : os.getenv('openai')}
-                                      )
+                                      {'batch_data': batch_data}
+                                      )        
         print("Time taken: ", time()-st)
         print("Added nodes with text embeddings to the graph...")
 
@@ -80,7 +94,7 @@ class Neo4j:
                                   MATCH (n)
                                   DETACH DELETE n
                                   """)
-        print("Nodes deleted.")
+        print("Deleted all nodes...")
 
     def precedence_relationship(self):
         '''
@@ -136,12 +150,11 @@ class Neo4j:
 
             **Returns the top K relevant chunks with their text value, similarity score, and chunkId**
         '''
+        # Generate query embedding using LangChain
+        query_embedding = self.embeddings.embed_query(q)
+        
         result = self.driver.execute_query("""
-                                          WITH genai.vector.encode($text_query,
-                                          "OpenAI", 
-                                          {token : $api_key, 
-                                          model : 'text-embedding-ada-002'}) AS vector
-                                          WITH vector AS queryVector
+                                          WITH $queryVector AS queryVector
                                           CALL db.index.vector.queryNodes('chunk_embeddings', $topK, queryVector)
                                           YIELD node AS c, score
                                           OPTIONAL MATCH (n1:Chunk)-[:PRECEDES]->(c)
@@ -149,10 +162,6 @@ class Neo4j:
                                           RETURN n1.text, n2.text, c.text, c.page, n1.page, n2.page, score
                                           ORDER BY score DESC
                                           """,
-                                         {'api_key' : os.getenv('openai'), 'text_query' : q, 'topK' : topK}
+                                         {'queryVector': query_embedding, 'topK': topK}
                                          )
         return result
-
-if __name__ == "__main__":
-    graph = Neo4j(os.getenv("uri"), 
-                "neo4j", os.getenv("neo4j_pass"))
