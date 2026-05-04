@@ -1,6 +1,9 @@
 from neo4j import GraphDatabase
 from time import time
 import os
+from dotenv import load_dotenv
+from pathlib import Path
+from pydantic import SecretStr
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 class Neo4j:
@@ -16,8 +19,13 @@ class Neo4j:
                                            auth=(user, password))
         self.driver.verify_connectivity()
         print("Connected to Neo4j successfully...")
-        # Initialize Google Generative AI embeddings
-        self.embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-2", output_dimensionality=1536)
+        # Initialize Gemini embeddings
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if api_key is None:
+            raise ValueError("GOOGLE_API_KEY not set in environment")
+        self.embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-2", 
+                                                       api_key=SecretStr(api_key) if api_key is not None else None,
+                                                       output_dimensionality=1536)
         self.driver.execute_query("""
                                   CREATE CONSTRAINT unique_chunk IF NOT EXISTS 
                                   FOR (c:Chunk) REQUIRE c.chunkId IS UNIQUE
@@ -39,8 +47,8 @@ class Neo4j:
         '''
             Create nodes with given chunk data, also add an embedding vector for each text chunk from the document.
             
-            Embeddings are generated using Google Generative AI and added batchwise for speed.
-                Change the value of BATCH_SIZE accordingly.
+            Embeddings are generated using Gemini and added batchwise for speed.
+            Change the value of BATCH_SIZE accordingly.
         '''
         BATCH_SIZE = 100
         st = time()
@@ -55,14 +63,14 @@ class Neo4j:
                                   """,
                                  {'list_of_chunks': list_of_chunks})
         
-        # Generate embeddings in batches using LangChain
+        # Generate embeddings in batches
         for batch in range(0, len(list_of_texts), BATCH_SIZE):  
             i = min(len(list_of_texts), batch+BATCH_SIZE)
             print(f"Processing batch {batch} to {i}")
             
             # Generate embeddings for this batch
             batch_texts = list_of_texts[batch:i]
-            embeddings = self.embeddings.embed_documents(batch_texts)
+            embeddings = self.embeddings.embed_documents(batch_texts, task_type="RETRIEVAL_DOCUMENT")
             
             # Prepare batch data for bulk update
             batch_data = []

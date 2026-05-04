@@ -1,13 +1,16 @@
 import os
 from document.doc_loader import DocumentLoader
-from graph import Neo4j
+from document.doc_graph import Neo4j
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pprint import pprint
+from dotenv import load_dotenv
+from pathlib import Path
 from time import time
 from data_model import GraphOutput
 print("Imported required files and packages...")
 
-
+load_dotenv(Path(__file__).parent.parent / ".env")
+neo4j_pwd = os.getenv("NEO4J_Password")
 # Loading, splitting and chunking the file
 doc_loader = DocumentLoader()
 doc_splits = doc_loader.lazy_load_and_split("AttentionPaper.pdf")
@@ -18,7 +21,7 @@ chunks, list_texts = doc_loader.create_chunks(doc_splits)
 # Connecting to Neo4j
 neo4j = Neo4j(
             "neo4j://0.0.0.0:7687",    # Connecting to the Neo4j instance running inside your docker container
-            "neo4j", os.getenv('NEO4J_Password')
+            "neo4j", neo4j_pwd
             )
 
 # Adding nodes to the graph
