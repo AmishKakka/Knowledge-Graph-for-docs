@@ -20,114 +20,98 @@ llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash",
                               google_api_key=os.getenv('GOOGLE_API_KEY'))
 structured_llm = llm.with_structured_output(TurnMemoryOutput)
 
-current_turn = {"turn_id": 1, 
-                "user_message": "Explain to me the Transfomer architecture.",
-                "llm_response": ""}
-existing_nodes = []
-open_questions = []
-memory_prompt = [
-    ("system", """
-    You are a Conversational Memory Graph engine. Your job is to extract a 
-    structured graph from a single conversation turn (one user message + one 
-    LLM response), given the existing graph state as context.
 
-    ## Node Types
-    - Turn       : Represents one exchange (user + LLM). Has turn_id, timestamp.
-    - Topic      : A subject, concept, or entity being discussed.
-                   (e.g., "Transformer Architecture", "Paris", "Project Deadline")
-    - Claim      : A specific fact or assertion made by either party.
-                   (e.g., "Transformers process tokens in parallel")
-    - Question   : An explicit or implicit question raised by the user.
-                   (e.g., "Which architecture handles long sequences better?")
-    - UserIntent : The underlying goal inferred from the conversation so far.
-                   (e.g., "Compare ML architectures", "Plan a trip to France")
+def run_query(user_message: str, llm, structured_llm):
+   response = llm.invoke(user_message)
+   llm_response = response.content
 
-    ## Relationship Types
-    - ASKS_ABOUT    : (Turn)     → (Topic)     [user introduced this topic]
-    - ANSWERS_WITH  : (Turn)     → (Claim)     [LLM made this claim in response]
-    - RAISES        : (Turn)     → (Question)  [this question was raised this turn]
-    - RESOLVES      : (Turn)     → (Question)  [this turn answered a prior question]
-    - REFINES       : (Question) → (Question)  [follow-up or narrowing of prior question]
-    - CONTRASTS     : (Topic)    → (Topic)     [explicitly compared in conversation]
-    - PART_OF       : (Claim)    → (Topic)     [this claim belongs to this topic]
-    - FOLLOWS_FROM  : (Turn)     → (Turn)      [sequential linkage]
-    - RELATED_TO    : (Topic)    → (Topic)     [topically connected, not contrasted]
-    - UNRESOLVED    : (Question) → (Turn)      [question raised but not yet answered]
+   current_turn = { 
+                "user_message": user_message,
+                "llm_response": llm_response
+                }
+   existing_nodes = neo4j.view_all_nodes()
+   open_questions = neo4j.get_open_questions()
 
-    ## Extraction Rules
+   memory_prompt = [
+      ("system", """
+      You are a Conversational Memory Graph engine. Your job is to extract a 
+      structured graph from a single conversation turn (one user message + one 
+      LLM response), given the existing graph state as context.
 
-    1. One Turn node per exchange. Always create it.
+      ## Node Types
+      - Turn       : Represents one exchange (user + LLM). Has turn_id, timestamp.
+      - Topic      : A subject, concept, or entity being discussed.
+                     (e.g., "Transformer Architecture", "Paris", "Project Deadline")
+      - Claim      : A specific fact or assertion made by either party.
+                     (e.g., "Transformers process tokens in parallel")
+      - Question   : An explicit or implicit question raised by the user.
+                     (e.g., "Which architecture handles long sequences better?")
+      - UserIntent : The underlying goal inferred from the conversation so far.
+                     (e.g., "Compare ML architectures", "Plan a trip to France")
 
-    2. Normalize Topic IDs to canonical full names.
-       ✗ "it", "that model", "the city"
-       ✓ "Transformer Architecture", "Paris", "GPT-4"
+      ## Relationship Types
+      - ASKS_ABOUT    : (Turn)     → (Topic)     [user introduced this topic]
+      - ANSWERS_WITH  : (Turn)     → (Claim)     [LLM made this claim in response]
+      - RAISES        : (Turn)     → (Question)  [this question was raised this turn]
+      - RESOLVES      : (Turn)     → (Question)  [this turn answered a prior question]
+      - REFINES       : (Question) → (Question)  [follow-up or narrowing of prior question]
+      - CONTRASTS     : (Topic)    → (Topic)     [explicitly compared in conversation]
+      - PART_OF       : (Claim)    → (Topic)     [this claim belongs to this topic]
+      - FOLLOWS_FROM  : (Turn)     → (Turn)      [sequential linkage]
+      - RELATED_TO    : (Topic)    → (Topic)     [topically connected, not contrasted]
+      - UNRESOLVED    : (Question) → (Turn)      [question raised but not yet answered]
 
-    3. Claims should be atomic — one idea per Claim node.
-       ✗ "Transformers use attention and are faster than RNNs"  (two claims)
-       ✓ "Transformers use self-attention mechanisms"
-       ✓ "Transformers are faster than RNNs for long sequences"
+      ## Extraction Rules
 
-    4. Only mark a Question as UNRESOLVED if the LLM response did not 
-       address it in this turn.
+      1. One Turn node per exchange. Always create it.
 
-    5. Reuse existing node IDs from the graph context if the same 
-       entity/topic appears again. Do NOT create duplicate nodes.
-       This is critical for graph coherence across turns.
+      2. Normalize Topic IDs to canonical full names.
+         ✗ "it", "that model", "the city"
+         ✓ "Transformer Architecture", "Paris", "GPT-4"
 
-    6. Infer UserIntent only if it has changed or become clearer this turn.
-       Don't re-extract the same intent every turn.
+      3. Claims should be atomic — one idea per Claim node.
+         ✗ "Transformers use attention and are faster than RNNs"  (two claims)
+         ✓ "Transformers use self-attention mechanisms"
+         ✓ "Transformers are faster than RNNs for long sequences"
 
-    ## Input Format
-    You will receive:
-    - current_turn    : { turn_id, user_message, llm_response }
-    - existing_nodes  : list of nodes already in the graph (id, type, summary)
-    - open_questions  : list of Question nodes currently marked UNRESOLVED
+      4. Only mark a Question as UNRESOLVED if the LLM response did not 
+         address it in this turn.
 
-    ## Output Format
-    - new_nodes          : nodes to ADD to the graph
-    - updated_nodes      : existing node IDs whose properties changed
-    - new_relationships  : relationships to ADD
-    - resolved_questions : Question node IDs now resolved (remove UNRESOLVED edge)
-    - graph_summary      : 2-3 sentence natural language summary of the 
-                           conversation state so far (for LLM context injection)
-    """),
-    ("human", f"""
-    current_turn: {current_turn}
-    existing_nodes: {existing_nodes}
-    open_questions: {open_questions}
-    """)
-]
+      5. Reuse existing node IDs from the graph context if the same 
+         entity/topic appears again. Do NOT create duplicate nodes.
+         This is critical for graph coherence across turns.
 
-#  turn 1
-st = time()
-response1 = llm.invoke(current_turn["user_message"])
-et1= time()
-print("Time taken for LLM to respond to question: ", et1-st)
-current_turn["llm_response"] = response1.content
-graph_t1 = structured_llm.invoke(memory_prompt)
-et2 = time()
-print("Time taken to understand the current graph: ", et2-st)
-print(graph_t1)
+      6. Infer UserIntent only if it has changed or become clearer this turn.
+         Don't re-extract the same intent every turn.
 
-neo4j.add_turn(graph_t1)
-existing_nodes = neo4j.view_all_nodes()
-open_questions = neo4j.get_open_questions()
-print(existing_nodes)
-print(open_questions)
+      ## Input Format
+      You will receive:
+      - user_message    : the query entered by user
+      - llm_response    : the LLM's response for the query
+      - existing_nodes  : list of nodes already in the graph (id, type, summary)
+      - open_questions  : list of Question nodes currently marked UNRESOLVED
+
+      ## Output Format
+      - new_nodes          : nodes to ADD to the graph
+      - updated_nodes      : existing node IDs whose properties changed
+      - new_relationships  : relationships to ADD
+      - resolved_questions : Question node IDs now resolved (remove UNRESOLVED edge)
+      - graph_summary      : 2-3 sentence natural language summary of the 
+                              conversation state so far (for LLM context injection)
+      """),
+      ("human", f"""
+      user_message: {current_turn["user_message"]}
+      llm_response: {current_turn["llm_response"]}
+      existing_nodes: {existing_nodes}
+      open_questions: {open_questions}
+      """)
+   ]
+   memory_response = structured_llm.invoke(memory_prompt)
+   print(type(memory_response))
+
+   neo4j.add_turn(memory_response)
+   # return memory_response
 
 
-#  turn 2
-current_turn["user_message"] = "How does this architecture compare to RNNs?"
-current_turn["turn_id"] = 2
-response2 = llm.invoke(current_turn["user_message"])
-print(response2)
-current_turn["llm_response"] = response2.content
-graph_t2 = structured_llm.invoke(memory_prompt)
-
-print(graph_t2)
-neo4j.add_turn(graph_t2)
-existing_nodes = neo4j.view_all_nodes()
-open_questions = neo4j.get_open_questions()
-print(existing_nodes)
-print(open_questions)
-
+run_query("Explain US Treasury in 100 words", llm, structured_llm)
+run_query("Explain US Federal bank in 100 words", llm, structured_llm)

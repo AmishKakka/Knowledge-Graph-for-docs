@@ -123,18 +123,26 @@ class Neo4j:
             session.execute_write(self._write_turn, memory_output)
         print("New nodes and relations added. Removed resolved questions...")
 
+    def find_relevant_nodes(self, query: str):
+        query_embedding = self.embeddings.embed_query(query)
+        
+
     def view_all_nodes(self):
         result = self.driver.execute_query("""
                                 MATCH (n)
                                 RETURN n.id, n.type, n.content
                                 """)
-        return result
+        existing_nodes = [res.data for res in result.records]
+        print("Existing Nodes:  ", existing_nodes)
+        return existing_nodes
     
     def get_open_questions(self):
-        open_questions = self.driver.execute_query("""
-                                                   MATCH (q)-[r:UNRESOLVED]->()
-                                                   RETURN  q.id, q.type, q.content
-                                                   """)
+        result = self.driver.execute_query("""
+                                            MATCH (q)-[r:UNRESOLVED]->()
+                                            RETURN  q.id, q.type, q.content
+                                            """)
+        open_questions = [res.data for res in result.records]
+        print("Open Questions:  ", open_questions)
         return open_questions
     
     def delete_all_nodes(self):
@@ -152,7 +160,7 @@ class Neo4j:
             Delete all relations present in your graph.
         '''
         self.driver.execute_query("""
-                                  MATCH ()-[r:PRECEDES]->()
+                                  MATCH ()-[r]->()
                                   DETACH DELETE r
                                   """)
         print("Deleted all relationships...")
