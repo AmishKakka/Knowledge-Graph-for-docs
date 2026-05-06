@@ -21,8 +21,44 @@ llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash",
 structured_llm = llm.with_structured_output(TurnMemoryOutput)
 
 
-def run_query(user_message: str, llm, structured_llm):
-   response = llm.invoke(user_message)
+def run_query(user_message: str, llm, structured_llm) -> str:
+   relevant_nodes = neo4j.get_relevant_nodes(query=user_message)
+   if relevant_nodes:
+        formatted_nodes = "\n".join([
+            f"- [{node['type']}] {node['content']} (relevance: {node['score']:.2f})"
+            for node in relevant_nodes
+        ])
+        context_section = f"""
+                           ## Retrieved Memory Context
+                           The following facts were retrieved from our conversation history, 
+                           ordered by relevance to the current query:
+
+                           {formatted_nodes}
+
+                           ## Instructions
+                           1. PRIORITIZE the retrieved context above when it directly answers the question.
+                           2. If the context is a callback ("what did you say...", "going back to..."), 
+                              answer from the retrieved context.
+                           3. If the context is relevant but incomplete, supplement with your knowledge 
+                              and clearly distinguish: "From our conversation: X. Additionally: Y."
+                           4. If the context is irrelevant to the query, ignore it and answer normally.
+                           """
+   else:
+      context_section = """
+                        ## Retrieved Memory Context
+                        No relevant context found from previous conversation.
+                        Answer the question using your general knowledge.
+                        """
+   prompt = [
+      ("system", f"""
+      You are a helpful assistant with graph-based conversational memory.
+      You have access to semantically retrieved facts from previous conversation turns.
+      
+      {context_section}
+      """),
+      ("human", user_message)
+   ]
+   response = llm.invoke(prompt)
    llm_response = response.content
 
    current_turn = { 
@@ -107,11 +143,11 @@ def run_query(user_message: str, llm, structured_llm):
       """)
    ]
    memory_response = structured_llm.invoke(memory_prompt)
-   print(type(memory_response))
 
    neo4j.add_turn(memory_response)
-   # return memory_response
+   return llm_response
 
 
-run_query("Explain US Treasury in 100 words", llm, structured_llm)
-run_query("Explain US Federal bank in 100 words", llm, structured_llm)
+# run_query("Explain US Treasury in 100 words", llm, structured_llm)   
+# run_query("Explain US Federal bank in 100 words", llm, structured_llm)
+# run_query("Connection between US Treasury and US Fed in 100 words.", llm, structured_llm)

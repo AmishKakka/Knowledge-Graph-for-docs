@@ -23,8 +23,11 @@ class Neo4j:
         self.driver.verify_connectivity()
         print("Connected to Neo4j successfully...")
         self.driver.execute_query("""
+            DROP INDEX chat_memory_index IF EXISTS
+        """)
+        self.driver.execute_query("""
                                 CREATE VECTOR INDEX chat_memory_index IF NOT EXISTS
-                                FOR (n:Topic) ON (n.embedding)
+                                FOR (n:Memory) ON (n.embedding)
                                 OPTIONS { 
                                   indexConfig: {
                                     `vector.dimensions`: 1536,
@@ -38,7 +41,8 @@ class Neo4j:
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model="gemini-embedding-2",
             api_key=SecretStr(api_key) if api_key is not None else None,
-            output_dimensionality=1536
+            output_dimensionality=1536,
+            task_type="RETRIEVAL_DOCUMENT"
         )
         print("Created a vector index for chat...")
 
@@ -50,7 +54,11 @@ class Neo4j:
         if not embeddable:
             return nodes
 
-        response = self.embeddings.embed_documents([n.content for n in embeddable])
+        response = []
+        for n in embeddable:
+            response.extend(self.embeddings.embed_documents([n.content]))
+        print(f"Nodes to embed: {len(embeddable)} | Embeddings returned: {len(response)}")
+            
         # Attach embeddings back
         embedding_map = { node.id: embedding for node, embedding in zip(embeddable, response) }
 
@@ -65,8 +73,8 @@ class Neo4j:
         # Upsert Nodes
         for node in memory_output.new_nodes:
             if node.embedding is not None:
-                tx.run("""
-                    MERGE (n {id: $id})
+                tx.run(f"""
+                    MERGE (n:{node.type}:Memory {{id: $id}})
                     SET n.type = $type,
                         n.content = $content,
                         n.turn_id = $turn_id,
@@ -81,8 +89,8 @@ class Neo4j:
                 embedding=node.embedding
                 )
             else:
-                tx.run("""
-                    MERGE (n {id: $id})
+                tx.run(f"""
+                    MERGE (n:{node.type} {{id: $id}})
                     SET n.type = $type,
                         n.content = $content,
                         n.turn_id = $turn_id
@@ -98,7 +106,7 @@ class Neo4j:
             tx.run(f"""
                 MATCH (a {{id: $source}})
                 MATCH (b {{id: $target}})
-                MERGE (a)-[r:{rel.type.value}]->(b)
+                MERGE (a)-[r:{rel.type}]->(b)
                 SET r.turn_id = $turn_id
             """,
             source=rel.source,
@@ -117,23 +125,23 @@ class Neo4j:
             )
 
     def add_turn(self, memory_output):
+        for node in memory_output.new_nodes:
+            node.type = node.type.value if hasattr(node.type, 'value') else node.type
+        for rel in memory_output.new_relationships:
+            rel.type = rel.type.value if hasattr(rel.type, 'value') else rel.type
+
         memory_output.new_nodes = self.embed_nodes(memory_output.new_nodes)
 
         with self.driver.session() as session:
             session.execute_write(self._write_turn, memory_output)
         print("New nodes and relations added. Removed resolved questions...")
 
-    def find_relevant_nodes(self, query: str):
-        query_embedding = self.embeddings.embed_query(query)
-        
-
     def view_all_nodes(self):
         result = self.driver.execute_query("""
                                 MATCH (n)
                                 RETURN n.id, n.type, n.content
                                 """)
-        existing_nodes = [res.data for res in result.records]
-        print("Existing Nodes:  ", existing_nodes)
+        existing_nodes = [res.data() for res in result.records]
         return existing_nodes
     
     def get_open_questions(self):
@@ -141,10 +149,35 @@ class Neo4j:
                                             MATCH (q)-[r:UNRESOLVED]->()
                                             RETURN  q.id, q.type, q.content
                                             """)
-        open_questions = [res.data for res in result.records]
-        print("Open Questions:  ", open_questions)
+        open_questions = [res.data() for res in result.records]
         return open_questions
     
+    def get_relevant_nodes(self, query: str, topK: int = 7):
+        query_embedding = self.embeddings.embed_query(query)
+        result = self.driver.execute_query("""
+                            CALL db.index.vector.queryNodes(
+                                'chat_memory_index', $top_k, $embedding
+                            )
+                            YIELD node, score
+                                           
+                            WITH node, score
+                            OPTIONAL MATCH (node)-[r]-(neighbour)
+                            
+                            RETURN 
+                                node.id      AS id,
+                                node.type    AS type,
+                                node.content AS content,
+                                score,
+                                collect(neighbour.content) AS neighbour_contents
+                            ORDER BY score DESC
+                        """,
+                        top_k=topK,
+                        embedding=query_embedding
+                        )
+        relevant_nodes = [record.data() for record in result.records]
+        print(f" Nodes relevant to {query}:  {relevant_nodes}")
+        return relevant_nodes
+
     def delete_all_nodes(self):
         '''
             Delete all nodes present in your graph.
