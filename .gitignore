@@ -2,4 +2,4 @@ env/
 .DS_Store/*
 .env
 .__pycache__/*
-chat-system/__pycache__
+chat_system/__pycache__

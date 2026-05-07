@@ -4,8 +4,8 @@ import json
 from dotenv import load_dotenv
 from pathlib import Path
 from langchain_google_genai import ChatGoogleGenerativeAI
-from chat_graph import Neo4j
-from chat_data_model import TurnMemoryOutput
+from .chat_graph import Neo4j
+from .chat_data_model import TurnMemoryOutput
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 neo4j_pwd = os.getenv("NEO4J_Password")

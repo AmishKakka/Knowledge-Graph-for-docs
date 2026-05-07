@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 from pydantic import SecretStr
-from chat_data_model import MemoryNode, TurnMemoryOutput
+from .chat_data_model import MemoryNode, TurnMemoryOutput
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 class Neo4j:
@@ -15,7 +15,6 @@ class Neo4j:
             
             Outputs if the connection is successful.
             Creates a Vector index and constraint for a unique id for each node.
-            In our case this will be the chunkId.
         '''
         load_dotenv(Path(__file__).parent.parent / ".env")
         self.driver = GraphDatabase.driver(uri, 
@@ -164,8 +163,8 @@ class Neo4j:
                             OPTIONAL MATCH (node)-[r]-(neighbour)
                             
                             RETURN 
-                                node.id      AS id,
-                                node.type    AS type,
+                                node.id AS id,
+                                node.type AS type,
                                 node.content AS content,
                                 score,
                                 collect(neighbour.content) AS neighbour_contents
