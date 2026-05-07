@@ -38,7 +38,7 @@ class Neo4j:
         if api_key is None:
             raise ValueError("GOOGLE_API_KEY not set in environment")
         self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="gemini-embedding-2",
+            model="gemini-embedding-001",
             api_key=SecretStr(api_key) if api_key is not None else None,
             output_dimensionality=1536,
             task_type="RETRIEVAL_DOCUMENT"
@@ -55,7 +55,7 @@ class Neo4j:
 
         response = []
         for n in embeddable:
-            response.extend(self.embeddings.embed_documents([n.content]))
+            response.append(self.embeddings.embed_documents([n.content]))
         print(f"Nodes to embed: {len(embeddable)} | Embeddings returned: {len(response)}")
             
         # Attach embeddings back
@@ -151,7 +151,7 @@ class Neo4j:
         open_questions = [res.data() for res in result.records]
         return open_questions
     
-    def get_relevant_nodes(self, query: str, topK: int = 7):
+    def get_relevant_nodes(self, query: str, topK: int = 5):
         query_embedding = self.embeddings.embed_query(query)
         result = self.driver.execute_query("""
                             CALL db.index.vector.queryNodes(

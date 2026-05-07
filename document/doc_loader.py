@@ -10,7 +10,7 @@ class DocumentLoader:
         '''
             Initializes the DocumentLoader with RecursiveCharacterTextSplitter.
         '''
-        self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000,
+        self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000,
                                                             chunk_overlap=250,
                                                             length_function=len,
                                                             separators=["\n\n", "\n"])

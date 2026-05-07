@@ -15,6 +15,7 @@ class Neo4j:
             Creates a Vector index and constraint for a unique id for each node.
             In our case this will be the chunkId.
         '''
+        load_dotenv(Path(__file__).parent.parent / ".env")
         self.driver = GraphDatabase.driver(uri, 
                                            auth=(user, password))
         self.driver.verify_connectivity()
@@ -23,9 +24,10 @@ class Neo4j:
         api_key = os.getenv("GOOGLE_API_KEY")
         if api_key is None:
             raise ValueError("GOOGLE_API_KEY not set in environment")
-        self.embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-2", 
+        self.embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001", 
                                                        api_key=SecretStr(api_key) if api_key is not None else None,
-                                                       output_dimensionality=1536)
+                                                       output_dimensionality=1536,
+                                                       task_type="RETRIEVAL_DOCUMENT")
         self.driver.execute_query("""
                                   CREATE CONSTRAINT unique_chunk IF NOT EXISTS 
                                   FOR (c:Chunk) REQUIRE c.chunkId IS UNIQUE
@@ -42,58 +44,49 @@ class Neo4j:
                                   }
                                   """)
         print("Added constraint for chunkId and created a vector index...")
-        
+
     def add_nodes(self, list_of_chunks: list, list_of_texts: list):
-        '''
-            Create nodes with given chunk data, also add an embedding vector for each text chunk from the document.
-            
-            Embeddings are generated using Gemini and added batchwise for speed.
-            Change the value of BATCH_SIZE accordingly.
-        '''
         BATCH_SIZE = 100
         st = time()
-        self.driver.execute_query("""
-                                  UNWIND $list_of_chunks as chunkParam
-                                  MERGE (c: Chunk{
-                                      text: chunkParam['text'],
-                                      file_path: chunkParam['file_path'],
-                                      page: chunkParam['page'],
-                                      chunkId: chunkParam['chunkId']
-                                  })
-                                  """,
-                                 {'list_of_chunks': list_of_chunks})
-        
-        # Generate embeddings in batches
-        for batch in range(0, len(list_of_texts), BATCH_SIZE):  
-            i = min(len(list_of_texts), batch+BATCH_SIZE)
-            print(f"Processing batch {batch} to {i}")
-            
-            # Generate embeddings for this batch
-            batch_texts = list_of_texts[batch:i]
-            embeddings = self.embeddings.embed_documents(batch_texts, task_type="RETRIEVAL_DOCUMENT")
-            
-            # Prepare batch data for bulk update
-            batch_data = []
-            for idx, embedding in enumerate(embeddings):
-                chunk_id = batch + idx
-                rounded_embedding = [round(v, 4) for v in embedding]
-                batch_data.append({
-                    'chunkId': chunk_id,
-                    'embedding': rounded_embedding
-                })
-            
-            # Bulk update all nodes in this batch with one transaction
-            self.driver.execute_query("""
-                                      UNWIND $batch_data as item
-                                      MATCH (c:Chunk {chunkId: item.chunkId})
-                                      SET c.embeddedChunk = item.embedding
-                                      RETURN c.chunkId
-                                      """,
-                                      {'batch_data': batch_data}
-                                      )        
-        print("Time taken: ", time()-st)
-        print("Added nodes with text embeddings to the graph...")
 
+        for batch in range(0, len(list_of_texts), BATCH_SIZE):
+            i = min(len(list_of_texts), batch + BATCH_SIZE)
+            print(f"Processing batch {batch} to {i}")
+
+            batch_texts  = list_of_texts[batch:i]
+            batch_chunks = list_of_chunks[batch:i]
+
+            # Generate embeddings for this batch
+            embeddings = self.embeddings.embed_documents(batch_texts)
+            print("No. of embedded text chunks: ", len(embeddings))
+
+            # chunk metadata + embedding
+            batch_data = [
+                {
+                    'text': chunk['text'],
+                    'file_path': chunk['file_path'],
+                    'page': chunk['page'],
+                    'chunkId': chunk['chunkId'],
+                    'embedding': embedding
+                }
+                for chunk, embedding in zip(batch_chunks, embeddings)
+            ]
+            print("Length of current batch after embedding: ", len(batch_data))
+            self.driver.execute_query("""
+                                    UNWIND $batch_data AS item
+                                    MERGE (c:Chunk {chunkId: item.chunkId})
+                                    SET c.text = item.text,
+                                        c.file_path = item.file_path,
+                                        c.page = item.page,
+                                        c.embeddedChunk = item.embedding
+                                    WITH c, item
+                                    CALL db.create.setNodeVectorProperty(c, 'embeddedChunk', item.embedding)
+                                """, 
+                                {'batch_data': batch_data})
+
+        print("Time taken: ", time() - st)
+        print("Added nodes with embeddings to the graph...")   
+   
     def delete_all_nodes(self):
         '''
             Delete all nodes present in your graph.
@@ -147,8 +140,8 @@ class Neo4j:
                                             ORDER BY n.chunkId
                                             """)
         return result
-    
-    def query(self, q: str, topK: int):
+
+    def get_relevant_doc_nodes(self, query: str, topK: int = 3):
         '''
             Query the graph.
             
@@ -156,20 +149,29 @@ class Neo4j:
                 q: Your query in string format.
                 topK : The number of top results to be retrieved that are similar to your query.
 
-            **Returns the top K relevant chunks with their text value, similarity score, and chunkId**
+            **Returns the topK relevant chunks with their text value, similarity score, and chunkId**
         '''
-        # Generate query embedding using LangChain
-        query_embedding = self.embeddings.embed_query(q)
-        
+        query_embedding = self.embeddings.embed_query(query)
         result = self.driver.execute_query("""
-                                          WITH $queryVector AS queryVector
-                                          CALL db.index.vector.queryNodes('chunk_embeddings', $topK, queryVector)
-                                          YIELD node AS c, score
-                                          OPTIONAL MATCH (n1:Chunk)-[:PRECEDES]->(c)
-                                          OPTIONAL MATCH (c)-[:PRECEDES]->(n2:Chunk)
-                                          RETURN n1.text, n2.text, c.text, c.page, n1.page, n2.page, score
-                                          ORDER BY score DESC
-                                          """,
-                                         {'queryVector': query_embedding, 'topK': topK}
-                                         )
-        return result
+                            CALL db.index.vector.queryNodes(
+                                'chunk_embeddings', $top_k, $embedding
+                            )
+                            YIELD node, score
+                                        
+                            WITH node, score
+                            OPTIONAL MATCH (node)-[r]-(neighbour)
+                            
+                            RETURN 
+                                node.id AS chunk_id,
+                                node.text AS text,
+                                node.page AS page,
+                                score,
+                                collect(neighbour.text) AS neighbour_contents
+                            ORDER BY score DESC
+                        """,
+                        top_k=topK,
+                        embedding=query_embedding
+                        )
+        relevant_nodes = [record.data() for record in result.records]
+        print(f" Nodes relevant to {query}:  {relevant_nodes}")
+        return relevant_nodes
