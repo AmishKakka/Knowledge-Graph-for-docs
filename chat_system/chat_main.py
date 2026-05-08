@@ -4,7 +4,7 @@ import json
 from dotenv import load_dotenv
 from pathlib import Path
 from langchain_google_genai import ChatGoogleGenerativeAI
-from .chat_graph import Neo4j
+from graph import Neo4j
 from .chat_data_model import TurnMemoryOutput
 
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -22,7 +22,7 @@ structured_llm = llm.with_structured_output(TurnMemoryOutput)
 
 
 def run_query(user_message: str, llm, structured_llm) -> str:
-   relevant_nodes = neo4j.get_relevant_nodes(query=user_message)
+   relevant_nodes = neo4j.get_relevant_chat_nodes(query=user_message)
    if relevant_nodes:
         formatted_nodes = "\n".join([
             f"- [{node['type']}] {node['content']} (relevance: {node['score']:.2f})"

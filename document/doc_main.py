@@ -1,6 +1,6 @@
 import os
 from doc_loader import DocumentLoader
-from doc_graph import Neo4j
+from graph import Neo4j
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pprint import pprint
 from dotenv import load_dotenv
@@ -25,7 +25,7 @@ neo4j = Neo4j(
             )
 
 # Adding nodes to the graph
-neo4j.add_nodes(chunks, list_texts)
+neo4j.add_document_nodes(chunks, list_texts)
 
 # Add relation between nodes
 neo4j.precedence_relationship()
