@@ -12,6 +12,7 @@ This way we represent a **large structured dataset**. We can query this graph to
 Queries which would take time processing, if using a SQL query.
 
 ## Knowledge Graph for unstructred data (text, chat systems, images, audio,..)
+
 So, here we use this idea of Knowledge Graph to represent documents.
 
 1. A graph has nodes and edges connecting them. In our case these nodes are chunks of text taken from the document with some metadata like - page no, chunkId, file-name, and vector embeddings for the chunks of text.
@@ -27,6 +28,7 @@ precedence between nodes based on chunkId, highlighting thematic or contextual c
 
 
 ## **Installation**
+
 1. Cloning the repository.
     ```sh 
     git clone https://github.com/AmishKakka/Knowledge-Graph-for-docs.git
@@ -53,16 +55,15 @@ Use the Dockerfile to create an image and then run it from your terminal or from
 3.  Explore the code
 
     ```sh
-    cd ./document
-
-    # Connecting with your Graph db
+    # Connecting with your Graph db instance
     python3 graph.py
 
     # Get your document, split into chunks of text with metadata.
+    cd ./document
     python3 doc_loader.py
 
     # Runs the flow created to load, split documents and add the nodes to the graph, then querying it
-    python3 main.py
+    python3 doc_main.py
     ```
 
 **Pointers**

@@ -4,7 +4,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List
 from langchain_google_genai import ChatGoogleGenerativeAI
-from chat_system.chat_graph import Neo4j
+from graph import Neo4j
 from chat_system.chat_data_model import TurnMemoryOutput
 from chat_system.chat_main import run_query
 

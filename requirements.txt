@@ -7,3 +7,4 @@ neo4j
 langchain_experimental
 langchain-google-genai
 langchain-core
+arxiv

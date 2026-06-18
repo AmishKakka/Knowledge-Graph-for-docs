@@ -1,6 +1,7 @@
 from neo4j import GraphDatabase
 from time import time
 import os
+from collections import defaultdict
 from dotenv import load_dotenv
 from pathlib import Path
 from pydantic import SecretStr
@@ -74,14 +75,10 @@ class Neo4j:
         if not embeddable:
             return nodes
 
-        response = []
-        for n in embeddable:
-            response.append(self.embeddings.embed_documents([n.content]))
-        print(f"Nodes to embed: {len(embeddable)} | Embeddings returned: {len(response)}")
-            
-        # Attach embeddings back
-        embedding_map = { node.id: embedding for node, embedding in zip(embeddable, response) }
-
+        texts = [n.content for n in embeddable]
+        vectors = self.embeddings.embed_documents(texts)
+        embedding_map = {node.id: vec for node, vec in zip(embeddable, vectors)}
+        
         for node in nodes:
             if node.id in embedding_map:
                 node.embedding = embedding_map[node.id]
@@ -159,43 +156,67 @@ class Neo4j:
     def add_document_nodes(self, list_of_chunks: list, list_of_texts: list):
         BATCH_SIZE = 100
         st = time()
+        
+        # Group chunks by their source file so we process each paper as a unit
+        groups = defaultdict(list)
+        for chunk, text in zip(list_of_chunks, list_of_texts):
+            groups[chunk['file_path']].append((chunk, text))
 
-        for batch in range(0, len(list_of_texts), BATCH_SIZE):
-            i = min(len(list_of_texts), batch + BATCH_SIZE)
-            print(f"Processing batch {batch} to {i}")
+        for file_path, items in groups.items():
+            # preserve chunk ordering within a file using chunkIndex (integer)
+            items.sort(key=lambda it: int(it[0].get('chunkIndex', 0)))
 
-            batch_texts  = list_of_texts[batch:i]
-            batch_chunks = list_of_chunks[batch:i]
+            print(f"Processing file {file_path} with {len(items)} chunks")
 
-            # Generate embeddings for this batch
-            embeddings = self.embeddings.embed_documents(batch_texts)
-            print("No. of embedded text chunks: ", len(embeddings))
+            texts = [t for _, t in items]
+            chunks = [c for c, _ in items]
 
-            # chunk metadata + embedding
-            batch_data = [
-                {
-                    'text': chunk['text'],
-                    'file_path': chunk['file_path'],
-                    'page': chunk['page'],
-                    'chunkId': chunk['chunkId'],
-                    'embedding': embedding
-                }
-                for chunk, embedding in zip(batch_chunks, embeddings)
-            ]
-            print("Length of current batch after embedding: ", len(batch_data))
-            self.driver.execute_query("""
+            # Process this file's chunks in batches to avoid too-large embedding calls
+            for start in range(0, len(texts), BATCH_SIZE):
+                end = min(len(texts), start + BATCH_SIZE)
+                batch_texts = texts[start:end]
+                batch_chunks = chunks[start:end]
+
+                # Generate embeddings for this batch
+                embeddings = self.embeddings.embed_documents(batch_texts)
+                print("No. of embedded text chunks: ", len(embeddings))
+
+                def ensure_vector(v):
+                    if v is None:
+                        return None
+                    if isinstance(v, list) and len(v) and isinstance(v[0], list):
+                        v = v[0]
+                    if hasattr(v, 'tolist'):
+                        v = v.tolist() # type: ignore
+                    return [float(x) for x in v]
+
+                batch_data = []
+                for chunk, emb in zip(batch_chunks, embeddings):
+                    vec = ensure_vector(emb)
+                    batch_data.append({
+                        'text': chunk['text'],
+                        'file_path': chunk['file_path'],
+                        'page': chunk['page'],
+                        'chunkId': chunk['chunkId'],
+                        'chunkIndex': chunk.get('chunkIndex', None),
+                        'embedding': vec
+                    })
+
+                print("Length of current batch after embedding: ", len(batch_data))
+                self.driver.execute_query("""
                                     UNWIND $batch_data AS item
                                     MERGE (c:Chunk {chunkId: item.chunkId})
                                     SET c.text = item.text,
                                         c.file_path = item.file_path,
                                         c.page = item.page,
+                                        c.chunkIndex = item.chunkIndex,
                                         c.embeddedChunk = item.embedding
                                     WITH c, item
                                     CALL db.create.setNodeVectorProperty(c, 'embeddedChunk', item.embedding)
                                 """, 
                                 {'batch_data': batch_data})
-        print("Time taken: ", time() - st)
-        print("Added nodes with embeddings to the graph...")   
+        print(f"Time taken: {(time() - st):.3f} seconds")
+        print("Added nodes with embeddings to the graph...")
 
     def get_relevant_doc_nodes(self, query: str, topK: int = 3):
         '''
@@ -218,7 +239,7 @@ class Neo4j:
                             OPTIONAL MATCH (node)-[r]-(neighbour)
                             
                             RETURN 
-                                node.id AS chunk_id,
+                                node.chunkId AS chunk_id,
                                 node.text AS text,
                                 node.page AS page,
                                 score,
@@ -229,7 +250,7 @@ class Neo4j:
                         embedding=query_embedding
                         )
         relevant_nodes = [record.data() for record in result.records]
-        print(f" Nodes relevant to {query}:  {relevant_nodes}")
+        print(f" Document nodes relevant to {query}:  {relevant_nodes}")
         return relevant_nodes
     
     def view_all_nodes(self):
@@ -279,11 +300,14 @@ class Neo4j:
             Add a simple precedence relation based on chunkIDs in an increasing order.
         '''
         self.driver.execute_query("""
-                                  MATCH (c1:Chunk)
-                                  MATCH (c2:Chunk {chunkId: c1.chunkId + 1})
-                                  CREATE (c1)-[r:PRECEDES]->(c2)
-                                  """)
-        print("Added precedence relations between nodes...")
+                                MATCH (c1:Chunk)
+                                WHERE c1.file_path IS NOT NULL AND c1.chunkIndex IS NOT NULL
+                                MATCH (c2:Chunk)
+                                WHERE c2.file_path = c1.file_path
+                                    AND c2.chunkIndex = c1.chunkIndex + 1
+                                MERGE (c1)-[r:PRECEDES]->(c2)
+                                """)
+        print("Added precedence relations between nodes within each file...")
     
     def delete_all_nodes(self):
         '''

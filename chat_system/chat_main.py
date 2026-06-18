@@ -7,22 +7,23 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from graph import Neo4j
 from .chat_data_model import TurnMemoryOutput
 
-load_dotenv(Path(__file__).parent.parent / ".env")
-neo4j_pwd = os.getenv("NEO4J_Password")
-# Connecting to Neo4j
-neo4j = Neo4j(
-            "neo4j://0.0.0.0:7687",    # Connecting to the Neo4j instance running inside your docker container
-            "neo4j", neo4j_pwd
-            )
+# load_dotenv(Path(__file__).parent.parent / ".env")
+# neo4j_pwd = os.getenv("NEO4J_Password")
+# # Connecting to Neo4j
+# neo4j = Neo4j(
+#             "neo4j://0.0.0.0:7687",    # Connecting to the Neo4j instance running inside your docker container
+#             "neo4j", neo4j_pwd
+#             )
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash",
-                              temperature=0,
-                              google_api_key=os.getenv('GOOGLE_API_KEY'))
-structured_llm = llm.with_structured_output(TurnMemoryOutput)
+# llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash",
+#                               temperature=0,
+#                               google_api_key=os.getenv('GOOGLE_API_KEY'))
+# structured_llm = llm.with_structured_output(TurnMemoryOutput)
 
 
-def run_query(user_message: str, llm, structured_llm) -> str:
+def run_query(llm, structured_llm, neo4j: Neo4j, user_message: str) -> str:
    relevant_nodes = neo4j.get_relevant_chat_nodes(query=user_message)
+   relevant_documents = neo4j.get_relevant_doc_nodes(query=user_message, topK=5)
    if relevant_nodes:
         formatted_nodes = "\n".join([
             f"- [{node['type']}] {node['content']} (relevance: {node['score']:.2f})"
@@ -39,9 +40,7 @@ def run_query(user_message: str, llm, structured_llm) -> str:
                            1. PRIORITIZE the retrieved context above when it directly answers the question.
                            2. If the context is a callback ("what did you say...", "going back to..."), 
                               answer from the retrieved context.
-                           3. If the context is relevant but incomplete, supplement with your knowledge 
-                              and clearly distinguish: "From our conversation: X. Additionally: Y."
-                           4. If the context is irrelevant to the query, ignore it and answer normally.
+                           3. Answer ONLY using the retrieved nodes. If insufficient information exists, say so.
                            """
    else:
       context_section = """
@@ -49,12 +48,39 @@ def run_query(user_message: str, llm, structured_llm) -> str:
                         No relevant context found from previous conversation.
                         Answer the question using your general knowledge.
                         """
+   if relevant_documents:
+      formatted_doc_nodes = "\n".join([
+            f"- [{doc_node['text']}] {doc_node['page']} (relevance: {doc_node['score']:.2f})"
+            for doc_node in relevant_documents
+        ])
+      doc_context_section = f"""
+                           ## Retrieved Documents Context
+                           The following chunks of information were retrieved from uploaded documents, 
+                           ordered by relevance to the current query:
+
+                           {formatted_doc_nodes}
+
+                           ## Instructions
+                           1. PRIORITIZE the retrieved documents information above when it directly answers the question.
+                           2. The documents context retireved maybe from multiple different documents or even a single document,
+                              so, you need to link all of it constructively with respect to the user's query.
+                           3. Answer ONLY using the retrieved documents. If insufficient information exists, say so.
+                           """
+   else:
+      doc_context_section = """
+                           ## Retrieved Documents Context
+                           No relevant context found from previous documents.
+                           Answer the question using your general knowledge.
+                           """
+      
    prompt = [
       ("system", f"""
       You are a helpful assistant with graph-based conversational memory.
       You have access to semantically retrieved facts from previous conversation turns.
       
       {context_section}
+
+      {doc_context_section}
       """),
       ("human", user_message)
    ]

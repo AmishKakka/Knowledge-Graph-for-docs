@@ -4,3 +4,5 @@ env/
 .__pycache__/*
 chat_system/__pycache__
 document/__pycache__
+papers/
+__pycache__/
